@@ -1,0 +1,78 @@
+import streamlit as st
+from inference_sdk import InferenceHTTPClient
+from PIL import Image
+import requests
+from io import BytesIO
+import tempfile
+import re
+
+# Initialize client
+client = InferenceHTTPClient(
+    api_url="https://serverless.roboflow.com",
+    api_key=""
+)
+
+# Streamlit settings
+st.set_page_config(page_title="Landscape Analyzer", layout="centered")
+
+st.markdown("<h1 style='text-align:center; color:#58a6ff;'>Landscape Analyzer For NASA SEES V-EX Team (DEMO)</h1>", unsafe_allow_html=True)
+
+#image input
+input_method = st.radio("Select Image Input Method", ["Upload Image", "Image URL"])
+
+image = None
+image_path_or_url = None
+
+if input_method == "Upload Image":
+    uploaded_file = st.file_uploader("Upload your landscape image", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            image_path_or_url = tmp_file.name
+else:
+    url = st.text_input("Enter Image URL")
+    if url:
+        try:
+            response = requests.get(url)
+            image = Image.open(BytesIO(response.content))
+            st.image(image, caption="Image from URL", use_column_width=True)
+            image_path_or_url = url
+        except Exception as e:
+            st.error(f"Error loading image: {e}")
+
+# Run analysis
+if image_path_or_url and st.button("Analyze Landscape"):
+    with st.spinner("Analyzing..."):
+        try:
+            result = client.run_workflow(
+                workspace_name="pokegrader",
+                workflow_id="custom-workflow-2",
+                images={"image": image_path_or_url},
+                use_cache=True
+            )
+
+            output_text = result[0]["open_ai"]["output"]
+
+            # Extract concrete, grass, trees percentages using regex
+            concrete_match = re.search(r"Concrete\s*[:\-]?\s*(\d+\.?\d*)\s*%", output_text, re.IGNORECASE)
+            grass_match = re.search(r"Grass\s*[:\-]?\s*(\d+\.?\d*)\s*%", output_text, re.IGNORECASE)
+            trees_match = re.search(r"Trees\s*[:\-]?\s*(\d+\.?\d*)\s*%", output_text, re.IGNORECASE)
+
+            concrete_pct = concrete_match.group(1) if concrete_match else "N/A"
+            grass_pct = grass_match.group(1) if grass_match else "N/A"
+            trees_pct = trees_match.group(1) if trees_match else "N/A"
+
+            st.markdown(f"""
+                <div style='background:#161b22; padding:20px; border-radius:10px; border:1px solid #30363d; text-align:center;'>
+                    <h2 style='color:#58a6ff;'>Results</h2>
+                    <p style='font-size:20px;'> Concrete: <span style='color:#e6edf3;'>{concrete_pct}%</span></p>
+                    <p style='font-size:20px;'> Grass: <span style='color:#e6edf3;'>{grass_pct}%</span></p>
+                    <p style='font-size:20px;'> Trees: <span style='color:#e6edf3;'>{trees_pct}%</span></p>
+                </div>
+            """, unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"Error during analysis: {e}")
+#python -m streamlit run SEEScode.py
