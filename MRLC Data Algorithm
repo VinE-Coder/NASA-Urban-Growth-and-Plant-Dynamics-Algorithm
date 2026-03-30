@@ -1,0 +1,80 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os
+import re
+import xml.etree.ElementTree as ET
+import pandas as pd
+import matplotlib.pyplot as plt
+
+#path
+folder_path = '/content/drive/My Drive/MRLC'
+
+data = []
+
+#go throgh filesa
+for filename in os.listdir(folder_path):
+    if filename.endswith('.aux.xml'):
+        category = None
+        year = None
+
+        if 'FctImp' in filename:
+            category = 'Mean of Fractional Impervious Surfaces'
+
+            year_match = re.search(r'20\d{2}', filename)
+            if year_match:
+                year = int(year_match.group())
+
+        elif 'TCC' in filename or 'tcc' in filename:
+            category = 'Mean of Tree Canopy Coverage'
+
+            date_match = re.search(r'20\d{6}_20\d{6}', filename)
+            if date_match:
+                start_date = date_match.group().split('_')[0]
+                year = int(start_date[:4])
+
+
+        if not category or not year:
+            continue
+#Parse
+        file_path = os.path.join(folder_path, filename)
+        try:
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+
+            mean_val = None
+            for mdi in root.findall('.//MDI'):
+                if mdi.attrib.get('key') == 'STATISTICS_MEAN':
+                    mean_val = float(mdi.text)
+                    break
+
+            if mean_val is not None:
+                data.append({'Year': year, 'Category': category, 'Mean': mean_val})
+        except ET.ParseError:
+            print(f"Error parsing: {filename}")
+        except Exception as e:
+            print(f"Error processing {filename}: {e}")
+df = pd.DataFrame(data)
+print("Extracted Data:")
+print(df)
+
+# Graphs
+categories = df['Category'].unique()
+for category in categories:
+    subset = df[df['Category'] == category].sort_values('Year')
+
+    plt.figure(figsize=(8, 5))
+
+    color = 'red' if 'Impervious' in category else 'green'
+
+    plt.plot(subset['Year'], subset['Mean'], marker='o', linestyle='-', color=color)
+    plt.title(f'{category} Over Time')
+    plt.xlabel('Year')
+    plt.ylabel('Mean Value (Pixel Percentage)')
+    plt.grid(True)
+    plt.tight_layout()
+    filename = f"{category.replace(' ', '_')}_mean_over_time.png"
+    plt.savefig(os.path.join(folder_path, filename))
+
+    plt.show()
+
